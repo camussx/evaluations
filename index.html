@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matriz de Evaluación — Sr. Product Designer</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #020617; color: #f1f5f9; font-family: 'DM Sans', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    button { font-family: 'DM Sans', system-ui, sans-serif; cursor: pointer; }
+    button:hover { opacity: 0.85; }
+    textarea { resize: none; font-family: 'DM Mono', monospace; }
+    input { font-family: 'DM Sans', system-ui, sans-serif; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .pulse { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
+
+    /* ── Responsive helpers ───────────────────────────────────────── */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    @media (max-width: 767px) {
+      body { font-size: 14px; }
+      .scoring-grid { grid-template-columns: 1fr !important; }
+      .summary-grid { grid-template-columns: 1fr 1fr !important; }
+      .summary-grid > div { border-right: none !important; border-bottom: 1px solid #1e293b; }
+      .summary-grid > div:nth-child(odd) { border-right: 1px solid #1e293b !important; }
+      .header-row { flex-direction: column; align-items: stretch !important; }
+      .header-actions { justify-content: flex-start !important; }
+      .dim-tabs { overflow-x: auto; }
+      .dim-tabs > button { min-width: 96px; }
+      .touch-btn { min-height: 44px !important; }
+      .score-btn { min-width: 44px !important; min-height: 44px !important; }
+      .table-scroll table { min-width: 520px; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { useState, useEffect, useRef, useCallback } = React;
+  const { createClient } = supabase;
+
+  const sb = createClient(
+    'https://pombjlmtpgzaziheweso.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvbWJqbG10cGd6YXppaGV3ZXNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3ODQxNjIsImV4cCI6MjA5MTM2MDE2Mn0.3fBgGLxi-QXUgpRLiFTG4vR43JqPbra_nnkicPPfbEA'
+  );
+
+  // ─── CONSTANTS ───────────────────────────────────────────────────────────────
+
+  const DIMENSIONS = [
+    {
+      id: "craft", label: "Craft & Sistemas", weight: 0.20, color: "#2563EB", icon: "◈",
+      criteria: [
+        { id: "design_system",  label: "Dominio de design systems",  desc: "¿Trabaja dentro de sistemas establecidos o solo crea desde cero?" },
+        { id: "handoff",        label: "Calidad de handoff",         desc: "¿Sus entregables son production-ready sin traducción?" },
+        { id: "documentation",  label: "Documentación de decisiones",desc: "¿Deja rastro del porqué, no solo del qué?" },
+        { id: "scalability",    label: "Pensamiento de escala",      desc: "¿Diseña componentes o diseña para sistemas?" },
+      ],
+    },
+    {
+      id: "experimental", label: "Pensamiento Experimental", weight: 0.30, color: "#7C3AED", icon: "⬡",
+      criteria: [
+        { id: "hypothesis",     label: "Formulación de hipótesis",   desc: "¿Puede estructurar un experimento de forma autónoma?" },
+        { id: "metrics",        label: "Orientación a métricas",     desc: "¿Sus resultados tienen números reales de impacto?" },
+        { id: "failure",        label: "Gestión del fracaso",        desc: "¿Cómo maneja y comunica experimentos que fallaron?" },
+        { id: "prioritization", label: "Priorización bajo ambigüedad",desc:"¿Puede decidir qué experimentar primero sin mapa claro?" },
+      ],
+    },
+    {
+      id: "influence", label: "Influencia sin Autoridad", weight: 0.25, color: "#0891B2", icon: "◎",
+      criteria: [
+        { id: "stakeholder",        label: "Manejo de stakeholders",    desc: "¿Tiene ejemplos de cambiar decisiones con evidencia?" },
+        { id: "pushback",           label: "Capacidad de pushback",     desc: "¿Sabe decir no con argumentos, no solo cumplir?" },
+        { id: "portfolio_narrative",label: "Narrativa del portafolio",  desc: "¿Muestra proceso + impacto o solo pantallas bonitas?" },
+        { id: "xfunctional",        label: "Colaboración cross-funcional",desc:"¿Ha trabajado con producto, negocio y tech simultáneamente?" },
+      ],
+    },
+    {
+      id: "mentoring", label: "Capacidad de Enseñar", weight: 0.25, color: "#059669", icon: "◇",
+      criteria: [
+        { id: "formal_mentoring",   label: "Mentoring formal/informal", desc: "¿Tiene ejemplos concretos de haber guiado a alguien?" },
+        { id: "feedback",           label: "Calidad de feedback",       desc: "¿Sabe dar retroalimentación sin destruir confianza?" },
+        { id: "knowledge_transfer", label: "Transferencia de conocimiento",desc:"¿Ha creado recursos, guías o talleres internos?" },
+        { id: "explain",            label: "Capacidad de explicar",     desc: "¿Puede traducir diseño a lenguaje de negocio?" },
+      ],
+    },
+  ];
+
+  const CANDIDATES = ["Alejandra Barriga", "Leomar Hernández", "Nicolle Chilcón", "Jessica Carranza"];
+  const SCORE_LABELS = ["—","Deficiente","Básico","Esperado","Sólido","Excepcional"];
+  const SCORE_COLORS = ["#94a3b8","#ef4444","#f97316","#eab308","#22c55e","#2563eb"];
+
+  const BASE_SCORES = {
+    "Alejandra Barriga": {
+      scores: {
+        craft:        { design_system:4, handoff:4, documentation:3, scalability:4 },
+        experimental: { hypothesis:5, metrics:5, failure:3, prioritization:4 },
+        influence:    { stakeholder:5, pushback:4, portfolio_narrative:4, xfunctional:5 },
+        mentoring:    { formal_mentoring:2, feedback:2, knowledge_transfer:2, explain:4 },
+      },
+      notes: {
+        craft: "Design system en Interbank (tokens, múltiples productos). Coordina con tech 4 años.",
+        experimental: "Co-creó unidad Behavioral Design ante CEO. Detectó caída 2.3% CVR. Tunki: 40k→320k. Kushki +80% conversión.",
+        influence: "Negociación 'Mi Año Interbank' con sustentación técnica. Presentó Behavioral Design ante comité ejecutivo.",
+        mentoring: "GAP CRÍTICO: ninguna evidencia en CV, entrevista ni notas. Pregunta pendiente: ¿tuvo juniors a cargo?",
+      },
+    },
+    "Leomar Hernández": {
+      scores: {
+        craft:        { design_system:4, handoff:4, documentation:4, scalability:4 },
+        experimental: { hypothesis:5, metrics:4, failure:4, prioritization:4 },
+        influence:    { stakeholder:4, pushback:4, portfolio_narrative:4, xfunctional:4 },
+        mentoring:    { formal_mentoring:5, feedback:4, knowledge_transfer:5, explain:4 },
+      },
+      notes: {
+        craft: "+50% adopción design system en Pacasmayo. 7 años consultoría independiente.",
+        experimental: "Metodología: Hipótesis → Prototipo IA → Prueba real. +300% usuarios. IA integrada (Claude, Figma Make, Cursor).",
+        influence: "Reportaba a gerente de estrategia, exposición a C-levels. Identificó riesgo de equipos aislados en entrevista.",
+        mentoring: "EL MÁS SÓLIDO DEL GRUPO. Lideró 3 personas (1 junior + 2 UX/UI). Co-creador programa +50 diseñadores Latam/Europa.",
+      },
+    },
+    "Nicolle Chilcón": {
+      scores: {
+        craft:        { design_system:3, handoff:3, documentation:3, scalability:3 },
+        experimental: { hypothesis:4, metrics:4, failure:3, prioritization:3 },
+        influence:    { stakeholder:3, pushback:3, portfolio_narrative:3, xfunctional:4 },
+        mentoring:    { formal_mentoring:2, feedback:2, knowledge_transfer:2, explain:3 },
+      },
+      notes: {
+        craft: "Atomic Design en UTEC. Sin evidencia de arquitectura de sistemas.",
+        experimental: "CVR duplicado en 5 meses en Auna. JTBD superficial. Behavioral Design admitido como tendencia, no dominio.",
+        influence: "Storytelling verificado por ex-lead OlympoBet. Inseguridad en presentaciones documentada.",
+        mentoring: "Sin mentoring técnico. Organiza retros espontáneamente (verificado ex-lead). Aprende rápido.",
+      },
+    },
+    "Jessica Carranza": {
+      scores: {
+        craft:        { design_system:2, handoff:3, documentation:2, scalability:2 },
+        experimental: { hypothesis:2, metrics:2, failure:3, prioritization:2 },
+        influence:    { stakeholder:2, pushback:2, portfolio_narrative:3, xfunctional:3 },
+        mentoring:    { formal_mentoring:1, feedback:1, knowledge_transfer:1, explain:2 },
+      },
+      notes: {
+        craft: "Trabaja con componentes sin visión de escala. Sin arquitectura de sistemas.",
+        experimental: "A/B testing acompañado, no liderado. Métricas de usabilidad, no de negocio.",
+        influence: "User testing 18 personas en SOAT — eso vale. Trabaja en silo.",
+        mentoring: "Ninguna evidencia. Tiene oferta paralela con deadline.",
+      },
+    },
+  };
+
+  // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+  function getTotal(scores) {
+    return DIMENSIONS.reduce((acc, dim) => {
+      const vals = dim.criteria.map(c => scores?.[dim.id]?.[c.id] ?? 0);
+      return acc + (vals.reduce((a,b)=>a+b,0)/vals.length) * dim.weight;
+    }, 0);
+  }
+
+  function getDimAvgs(scores) {
+    const avgs = {};
+    DIMENSIONS.forEach(dim => {
+      const vals = dim.criteria.map(c => scores?.[dim.id]?.[c.id] ?? 0);
+      avgs[dim.id] = vals.reduce((a,b)=>a+b,0)/vals.length;
+    });
+    return avgs;
+  }
+
+  function averageScores(scoresList) {
+    if (!scoresList.length) return {};
+    const result = {};
+    DIMENSIONS.forEach(dim => {
+      result[dim.id] = {};
+      dim.criteria.forEach(c => {
+        const vals = scoresList.map(s => s?.[dim.id]?.[c.id] ?? 0).filter(v => v > 0);
+        result[dim.id][c.id] = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+      });
+    });
+    return result;
+  }
+
+  function getVerdict(score) {
+    if (score < 1)   return { label:"Sin evaluar",          color:"#64748b" };
+    if (score < 2)   return { label:"No recomendado",       color:"#ef4444" };
+    if (score < 3)   return { label:"Con reservas",         color:"#f97316" };
+    if (score < 4)   return { label:"Potencial",            color:"#eab308" };
+    if (score < 4.5) return { label:"Recomendado",          color:"#22c55e" };
+    return             { label:"Altamente recomendado",     color:"#2563eb" };
+  }
+
+  // ─── SUB-COMPONENTS ──────────────────────────────────────────────────────────
+
+  function RadarChart({ scores, color, size=140 }) {
+    const n = DIMENSIONS.length;
+    const cx=size/2, cy=size/2, r=size*0.35;
+    const angle = i => Math.PI*2*i/n - Math.PI/2;
+    const pt = (i,val) => { const a=angle(i),ratio=val/5; return [cx+r*ratio*Math.cos(a), cy+r*ratio*Math.sin(a)]; };
+    const lpt = i => { const a=angle(i); return [cx+(r+18)*Math.cos(a), cy+(r+18)*Math.sin(a)]; };
+    const gpts = lv => DIMENSIONS.map((_,i)=>pt(i,lv)).map(([x,y])=>`${x},${y}`).join(" ");
+    const dpts = DIMENSIONS.map((d,i)=>{
+      const vals=d.criteria.map(c=>scores?.[d.id]?.[c.id]??0);
+      return pt(i,vals.reduce((a,b)=>a+b,0)/vals.length);
+    }).map(([x,y])=>`${x},${y}`).join(" ");
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {[1,2,3,4,5].map(l=><polygon key={l} points={gpts(l)} fill="none" stroke="#334155" strokeWidth={0.8}/>)}
+        {DIMENSIONS.map((_,i)=>{ const [x,y]=pt(i,5); return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#334155" strokeWidth={0.8}/>; })}
+        <polygon points={dpts} fill={color+"33"} stroke={color} strokeWidth={2}/>
+        {DIMENSIONS.map((d,i)=>{ const [x,y]=lpt(i); return <text key={d.id} x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={7} fill="#94a3b8" fontFamily="monospace">{d.icon}</text>; })}
+      </svg>
+    );
+  }
+
+  function ScoreBtn({ value, selected, onClick, color }) {
+    return (
+      <button onClick={onClick} className="score-btn" style={{
+        width:38,height:38,borderRadius:6,
+        border: selected?`2px solid ${color}`:"2px solid transparent",
+        background: selected?color:"#1e293b",
+        color: selected?"#fff":"#64748b",
+        fontWeight:700,fontSize:13,transition:"all 0.15s",
+      }}>{value}</button>
+    );
+  }
+
+  function SyncBadge({ status }) {
+    const map = {
+      idle:   { color:"#334155", label:"Sin cambios" },
+      saving: { color:"#eab308", label:"Guardando..." },
+      saved:  { color:"#22c55e", label:"Guardado ✓" },
+      error:  { color:"#ef4444", label:"Error al guardar" },
+    };
+    const { color, label } = map[status] || map.idle;
+    return (
+      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+        <div className={status==="saving"?"pulse":""} style={{ width:8,height:8,borderRadius:"50%",background:color }} />
+        <span style={{ fontSize:12,color:"#475569",fontFamily:"monospace" }}>{label}</span>
+      </div>
+    );
+  }
+
+  // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+  function App() {
+    const [evaluatorName, setEvaluatorName]   = useState("");
+    const [nameInput, setNameInput]           = useState("");
+    const [loggedIn, setLoggedIn]             = useState(false);
+    const [loading, setLoading]               = useState(false);
+    const [myData, setMyData]                 = useState({});
+    const [allEvals, setAllEvals]             = useState([]);
+    const [syncStatus, setSyncStatus]         = useState("idle");
+    const [activeTab, setActiveTab]           = useState("scoring");
+    const [selectedCandidate, setSelectedCand]= useState(CANDIDATES[0]);
+    const [activeDim, setActiveDim]           = useState("craft");
+    const saveTimers = useRef({});
+
+    // ── Data fetching ──────────────────────────────────────────────────────────
+
+    const loadAllEvals = useCallback(async () => {
+      const { data } = await sb.from("evaluations").select("*");
+      if (data) setAllEvals(data);
+    }, []);
+
+    const loadMyData = useCallback(async (name) => {
+      const { data } = await sb.from("evaluations").select("*").eq("evaluator_name", name);
+      if (data && data.length) {
+        const mapped = {};
+        data.forEach(row => { mapped[row.candidate_name] = { scores: row.scores||{}, notes: row.notes||{} }; });
+        setMyData(mapped);
+      }
+    }, []);
+
+    // ── Login ──────────────────────────────────────────────────────────────────
+
+    const handleLogin = async () => {
+      const name = nameInput.trim();
+      if (!name) return;
+      setLoading(true);
+      await loadMyData(name);
+      await loadAllEvals();
+      setEvaluatorName(name);
+      setLoggedIn(true);
+      setLoading(false);
+    };
+
+    // ── Load base scores (Carlos's analysis) ──────────────────────────────────
+
+    const loadBaseScores = async () => {
+      setSyncStatus("saving");
+      const rows = CANDIDATES.map(cName => ({
+        evaluator_name: evaluatorName,
+        candidate_name: cName,
+        scores: BASE_SCORES[cName].scores,
+        notes:  BASE_SCORES[cName].notes,
+        updated_at: new Date().toISOString(),
+      }));
+      const { error } = await sb.from("evaluations").upsert(rows, { onConflict: "evaluator_name,candidate_name" });
+      if (!error) {
+        const mapped = {};
+        CANDIDATES.forEach(c => { mapped[c] = { scores: BASE_SCORES[c].scores, notes: BASE_SCORES[c].notes }; });
+        setMyData(mapped);
+        await loadAllEvals();
+        setSyncStatus("saved");
+      } else {
+        setSyncStatus("error");
+      }
+      setTimeout(() => setSyncStatus("idle"), 2500);
+    };
+
+    // ── Save (debounced) ───────────────────────────────────────────────────────
+
+    const scheduleSave = useCallback((cName, scores, notes) => {
+      if (saveTimers.current[cName]) clearTimeout(saveTimers.current[cName]);
+      setSyncStatus("saving");
+      saveTimers.current[cName] = setTimeout(async () => {
+        const { error } = await sb.from("evaluations").upsert({
+          evaluator_name: evaluatorName,
+          candidate_name: cName,
+          scores, notes,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "evaluator_name,candidate_name" });
+        if (!error) {
+          await loadAllEvals();
+          setSyncStatus("saved");
+          setTimeout(() => setSyncStatus("idle"), 2500);
+        } else {
+          setSyncStatus("error");
+        }
+      }, 800);
+    }, [evaluatorName, loadAllEvals]);
+
+    const updateScore = (cName, dimId, cId, val) => {
+      setMyData(prev => {
+        const cur = prev[cName] || { scores:{}, notes:{} };
+        const newScores = { ...cur.scores, [dimId]: { ...cur.scores[dimId], [cId]: val } };
+        scheduleSave(cName, newScores, cur.notes||{});
+        return { ...prev, [cName]: { ...cur, scores: newScores } };
+      });
+    };
+
+    const updateNote = (cName, dimId, val) => {
+      setMyData(prev => {
+        const cur = prev[cName] || { scores:{}, notes:{} };
+        const newNotes = { ...cur.notes, [dimId]: val };
+        scheduleSave(cName, cur.scores||{}, newNotes);
+        return { ...prev, [cName]: { ...cur, notes: newNotes } };
+      });
+    };
+
+    // ── Realtime ───────────────────────────────────────────────────────────────
+
+    useEffect(() => {
+      if (!loggedIn) return;
+      const ch = sb.channel("evals-rt")
+        .on("postgres_changes", { event:"*", schema:"public", table:"evaluations" }, () => loadAllEvals())
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    }, [loggedIn, loadAllEvals]);
+
+    // ── Computed ───────────────────────────────────────────────────────────────
+
+    const evaluatorNames = [...new Set(allEvals.map(e => e.evaluator_name))];
+    const currentData    = myData[selectedCandidate] || { scores:{}, notes:{} };
+    const currentDim     = DIMENSIONS.find(d => d.id === activeDim);
+    const hasMyData      = Object.keys(myData).length > 0;
+
+    const avgPerCandidate = CANDIDATES.map(cName => {
+      const rows = allEvals.filter(e => e.candidate_name === cName);
+      const avgScores = averageScores(rows.map(r => r.scores||{}));
+      return { name:cName, scores:avgScores, total:getTotal(avgScores), dimAvgs:getDimAvgs(avgScores), evalCount:rows.length };
+    }).sort((a,b) => b.total - a.total);
+
+    // ── LOGIN SCREEN ───────────────────────────────────────────────────────────
+
+    if (!loggedIn) {
+      return (
+        <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+          <div style={{ background:"#0f172a",border:"1.5px solid #1e293b",borderRadius:18,padding:40,width:"100%",maxWidth:420,textAlign:"center" }}>
+            <div style={{ fontFamily:"'DM Mono',monospace",fontSize:12,color:"#2563EB",letterSpacing:3,textTransform:"uppercase",marginBottom:14 }}>
+              Design Team
+            </div>
+            <h1 style={{ fontSize:22,fontWeight:800,marginBottom:6,letterSpacing:-0.5 }}>Matriz de Evaluación</h1>
+            <p style={{ color:"#475569",fontSize:13,marginBottom:28,lineHeight:1.5 }}>
+              Sr. Product Designer · Ingresa tu nombre para ver y guardar tu evaluación en la nube
+            </p>
+            <input
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => e.key==="Enter" && handleLogin()}
+              placeholder="Tu nombre completo"
+              style={{
+                width:"100%",background:"#020617",border:"1.5px solid #334155",
+                borderRadius:8,padding:"11px 14px",color:"#f1f5f9",fontSize:14,
+                outline:"none",marginBottom:12,textAlign:"center",
+              }}
+              autoFocus
+            />
+            <button onClick={handleLogin} disabled={loading} className="touch-btn" style={{
+              width:"100%",padding:"13px 14px",minHeight:48,background:"#2563EB",border:"none",
+              borderRadius:8,color:"#fff",fontSize:14,fontWeight:700,
+              opacity: loading?0.6:1,
+            }}>
+              {loading ? <span className="spin">⟳</span> : "Ingresar →"}
+            </button>
+            <p style={{ marginTop:16,fontSize:12,color:"#334155" }}>
+              Tu evaluación se guarda automáticamente · Las evaluaciones de todos son visibles en "Comparativa"
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ── MAIN UI ────────────────────────────────────────────────────────────────
+
+    return (
+      <div style={{ minHeight:"100vh",padding:"20px 16px 40px" }}>
+
+        {/* HEADER */}
+        <div style={{ maxWidth:1160,margin:"0 auto 20px" }}>
+          <div className="header-row" style={{ display:"flex",alignItems:"flex-end",justifyContent:"space-between",flexWrap:"wrap",gap:12 }}>
+            <div>
+              <div style={{ fontFamily:"'DM Mono',monospace",fontSize:12,color:"#2563EB",letterSpacing:3,textTransform:"uppercase",marginBottom:4 }}>
+                Design Team
+              </div>
+              <h1 style={{ fontSize:20,fontWeight:800,letterSpacing:-0.5 }}>Matriz de Evaluación — Sr. Product Designer</h1>
+              <p style={{ marginTop:3,color:"#475569",fontSize:12 }}>
+                Evaluando como: <span style={{ color:"#f1f5f9",fontWeight:700 }}>{evaluatorName}</span>
+                <span style={{ color:"#334155" }}> · {evaluatorNames.length} evaluador(es) · {allEvals.length} registros en base de datos</span>
+              </p>
+            </div>
+            <div className="header-actions" style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
+              <SyncBadge status={syncStatus} />
+              {!hasMyData && (
+                <button onClick={loadBaseScores} className="touch-btn" style={{
+                  padding:"10px 14px",background:"#1e293b",border:"1px solid #334155",
+                  borderRadius:8,color:"#94a3b8",fontSize:12,fontWeight:600,
+                }}>⬇ Cargar evaluación base (Carlos)</button>
+              )}
+              <div style={{ display:"flex",background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,overflow:"hidden" }}>
+                {[{id:"scoring",label:"Mi evaluación"},{id:"comparison",label:"Comparativa"}].map(tab => (
+                  <button key={tab.id} onClick={()=>setActiveTab(tab.id)} className="touch-btn" style={{
+                    padding:"10px 16px",border:"none",
+                    background: activeTab===tab.id?"#1e293b":"transparent",
+                    color: activeTab===tab.id?"#f1f5f9":"#475569",
+                    fontSize:12,fontWeight:600,
+                  }}>{tab.label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxWidth:1160,margin:"0 auto" }}>
+
+          {/* ══ SCORING TAB ═══════════════════════════════════════════════════ */}
+          {activeTab === "scoring" && (
+            <div className="scoring-grid" style={{ display:"grid",gridTemplateColumns:"320px 1fr",gap:16 }}>
+
+              {/* Candidate carousel */}
+              <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                {(() => {
+                  const currentIdx = CANDIDATES.indexOf(selectedCandidate);
+                  const goPrev = () => setSelectedCand(CANDIDATES[(currentIdx - 1 + CANDIDATES.length) % CANDIDATES.length]);
+                  const goNext = () => setSelectedCand(CANDIDATES[(currentIdx + 1) % CANDIDATES.length]);
+                  const data    = myData[selectedCandidate]||{scores:{},notes:{}};
+                  const total   = getTotal(data.scores);
+                  const dimAvgs = getDimAvgs(data.scores);
+                  const { label, color } = getVerdict(total);
+                  return (
+                    <>
+                      {/* Nav arrows + name */}
+                      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8 }}>
+                        <button onClick={goPrev} aria-label="Anterior candidato" className="touch-btn" style={{
+                          width:44,height:44,borderRadius:10,
+                          background:"#0f172a",border:"1.5px solid #1e293b",
+                          color:"#94a3b8",fontSize:18,fontWeight:700,flexShrink:0,
+                        }}>←</button>
+                        <div style={{ flex:1,textAlign:"center",minWidth:0 }}>
+                          <div style={{ fontWeight:700,fontSize:14,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{selectedCandidate}</div>
+                          <div style={{ fontSize:12,color:"#475569",fontFamily:"'DM Mono',monospace",marginTop:2 }}>
+                            {currentIdx + 1} / {CANDIDATES.length}
+                          </div>
+                        </div>
+                        <button onClick={goNext} aria-label="Siguiente candidato" className="touch-btn" style={{
+                          width:44,height:44,borderRadius:10,
+                          background:"#0f172a",border:"1.5px solid #1e293b",
+                          color:"#94a3b8",fontSize:18,fontWeight:700,flexShrink:0,
+                        }}>→</button>
+                      </div>
+
+                      {/* Dot indicators */}
+                      <div style={{ display:"flex",gap:8,justifyContent:"center",alignItems:"center" }}>
+                        {CANDIDATES.map((cName,i) => (
+                          <button key={cName} onClick={()=>setSelectedCand(cName)} aria-label={`Ir a ${cName}`} style={{
+                            width: i===currentIdx?22:9, height:9, borderRadius:6,
+                            background: i===currentIdx?"#2563EB":"#334155",
+                            border:"none",padding:0,transition:"all 0.25s",
+                          }}/>
+                        ))}
+                      </div>
+
+                      {/* Single candidate card */}
+                      <div style={{
+                        background:"#0f172a",
+                        border:"1.5px solid #2563EB",
+                        borderRadius:14,padding:18,transition:"all 0.2s",
+                      }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
+                          <div style={{ flex:1,marginRight:10 }}>
+                            <div style={{ fontWeight:700,fontSize:15,color:"#f1f5f9",marginBottom:6 }}>{selectedCandidate}</div>
+                            <div style={{ fontSize:12,padding:"3px 10px",borderRadius:20,display:"inline-block",background:color+"22",color,fontWeight:700,letterSpacing:1,textTransform:"uppercase" }}>{label}</div>
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontFamily:"'DM Mono',monospace",fontSize:32,fontWeight:800,color,lineHeight:1 }}>{total>0?total.toFixed(1):"—"}</div>
+                            <div style={{ fontSize:12,color:"#475569",fontFamily:"'DM Mono',monospace",marginTop:2 }}>/ 5.0</div>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"center",marginBottom:10 }}>
+                          <RadarChart scores={data.scores} color="#2563EB" size={160} />
+                        </div>
+                        <div style={{ marginTop:12 }}>
+                          {DIMENSIONS.map(dim => (
+                            <div key={dim.id} style={{ marginBottom:8 }}>
+                              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
+                                <span style={{ fontSize:12,color:"#94a3b8" }}>{dim.icon} {dim.label}</span>
+                                <span style={{ fontSize:12,fontWeight:700,color:dim.color,fontFamily:"'DM Mono',monospace" }}>{dimAvgs[dim.id]>0?dimAvgs[dim.id].toFixed(1):"—"}</span>
+                              </div>
+                              <div style={{ background:"#1e293b",borderRadius:3,height:5,overflow:"hidden" }}>
+                                <div style={{ height:"100%",width:`${(dimAvgs[dim.id]/5)*100}%`,background:dim.color,transition:"width 0.4s ease" }}/>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Scoring panel */}
+              <div style={{ background:"#0f172a",border:"1.5px solid #1e293b",borderRadius:14,overflow:"hidden" }}>
+                {/* Dim tabs */}
+                <div className="dim-tabs" style={{ display:"flex",borderBottom:"1px solid #1e293b" }}>
+                  {DIMENSIONS.map(dim => {
+                    const vals = dim.criteria.map(c => currentData.scores?.[dim.id]?.[c.id]??0);
+                    const avg  = vals.reduce((a,b)=>a+b,0)/vals.length;
+                    return (
+                      <button key={dim.id} onClick={()=>setActiveDim(dim.id)} className="touch-btn" style={{
+                        flex:1,padding:"12px 6px",
+                        background: activeDim===dim.id?"#020617":"transparent",
+                        border:"none",
+                        borderBottom: activeDim===dim.id?`2px solid ${dim.color}`:"2px solid transparent",
+                        color: activeDim===dim.id?dim.color:"#475569",
+                        fontSize:12,fontWeight:700,transition:"all 0.15s",
+                      }}>
+                        <div style={{ fontSize:13,marginBottom:2 }}>{dim.icon}</div>
+                        <div>{dim.label}</div>
+                        <div style={{ marginTop:2,fontSize:12,color:avg>0?dim.color:"#334155" }}>
+                          {avg>0?avg.toFixed(1):"—"} · ×{dim.weight}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ padding:18 }}>
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:15,fontWeight:700,color:"#f1f5f9",marginBottom:2 }}>{selectedCandidate}</div>
+                    <div style={{ fontSize:12,color:"#334155" }}>1 = Deficiente · 2 = Básico · 3 = Esperado · 4 = Sólido · 5 = Excepcional</div>
+                  </div>
+
+                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                    {currentDim.criteria.map(criterion => {
+                      const score = currentData.scores?.[activeDim]?.[criterion.id]??0;
+                      return (
+                        <div key={criterion.id} style={{
+                          background:"#020617",borderRadius:10,padding:14,
+                          border: score>0?`1px solid ${currentDim.color}33`:"1px solid #1e293b",
+                        }}>
+                          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10 }}>
+                            <div style={{ flex:1,marginRight:12 }}>
+                              <div style={{ fontWeight:700,fontSize:14,color:"#e2e8f0",marginBottom:2 }}>{criterion.label}</div>
+                              <div style={{ fontSize:12,color:"#475569",lineHeight:1.5 }}>{criterion.desc}</div>
+                            </div>
+                            {score>0 && (
+                              <div style={{ padding:"3px 10px",borderRadius:20,background:SCORE_COLORS[score]+"22",color:SCORE_COLORS[score],fontSize:12,fontWeight:700,whiteSpace:"nowrap" }}>
+                                {SCORE_LABELS[score]}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display:"flex",gap:6 }}>
+                            {[1,2,3,4,5].map(v=>(
+                              <ScoreBtn key={v} value={v} selected={score===v} color={currentDim.color}
+                                onClick={()=>updateScore(selectedCandidate,activeDim,criterion.id,v)}/>
+                            ))}
+                            {score>0 && (
+                              <button onClick={()=>updateScore(selectedCandidate,activeDim,criterion.id,0)} className="score-btn"
+                                style={{ width:38,height:38,borderRadius:6,border:"1px solid #1e293b",background:"transparent",color:"#334155",fontSize:11 }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ marginTop:16 }}>
+                    <div style={{ fontSize:12,color:"#475569",fontFamily:"monospace",marginBottom:6 }}>
+                      // EVIDENCIA · {currentDim.label}
+                    </div>
+                    <textarea
+                      value={currentData.notes?.[activeDim]??""}
+                      onChange={e=>updateNote(selectedCandidate,activeDim,e.target.value)}
+                      rows={3}
+                      placeholder="Observaciones, señales de alerta, citas textuales de la entrevista..."
+                      style={{ width:"100%",background:"#020617",border:"1px solid #1e293b",borderRadius:8,padding:12,color:"#94a3b8",fontSize:12,lineHeight:1.6,outline:"none" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ COMPARISON TAB ════════════════════════════════════════════════ */}
+          {activeTab === "comparison" && (
+            <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+
+              {/* Score promedio combinado */}
+              <div style={{ background:"#0f172a",border:"1.5px solid #1e293b",borderRadius:14,overflow:"hidden" }}>
+                <div style={{ padding:"12px 20px",borderBottom:"1px solid #1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8 }}>
+                  <div style={{ fontFamily:"monospace",fontSize:12,color:"#475569",letterSpacing:2,textTransform:"uppercase" }}>
+                    Score promedio combinado · {evaluatorNames.length} evaluador(es)
+                  </div>
+                  <div style={{ fontSize:12,color:"#334155",fontFamily:"monospace" }}>
+                    {evaluatorNames.join(" · ") || "Sin evaluaciones aún"}
+                  </div>
+                </div>
+                <div className="summary-grid" style={{ display:"grid",gridTemplateColumns:`repeat(${CANDIDATES.length},1fr)` }}>
+                  {avgPerCandidate.map((c,idx)=>{
+                    const { label, color } = getVerdict(c.total);
+                    return (
+                      <div key={c.name} style={{
+                        padding:18,textAlign:"center",
+                        borderRight: idx<CANDIDATES.length-1?"1px solid #1e293b":"none",
+                        background: idx===0?"#0a1628":"transparent",
+                      }}>
+                        {idx===0&&c.total>0&&<div style={{ fontSize:12,color:"#22c55e",fontWeight:800,letterSpacing:1,marginBottom:6 }}>▲ MEJOR SCORE</div>}
+                        <div style={{ fontSize:12,color:"#64748b",fontFamily:"monospace",marginBottom:3 }}>#{idx+1}</div>
+                        <div style={{ fontWeight:700,fontSize:14,color:"#f1f5f9",marginBottom:4 }}>{c.name}</div>
+                        <div style={{ fontSize:28,fontWeight:800,color,fontFamily:"'DM Mono',monospace",lineHeight:1 }}>
+                          {c.total>0?c.total.toFixed(2):"—"}
+                        </div>
+                        <div style={{ fontSize:12,color:"#475569",marginBottom:8 }}>/ 5.00 · {c.evalCount} eval(s)</div>
+                        <div style={{ padding:"2px 8px",borderRadius:20,display:"inline-block",background:color+"22",color,fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10 }}>{label}</div>
+                        <div style={{ display:"flex",justifyContent:"center" }}>
+                          <RadarChart scores={c.scores} color={color} size={110}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Per evaluator breakdown */}
+              {evaluatorNames.length === 0 ? (
+                <div style={{ textAlign:"center",padding:48,color:"#334155",fontFamily:"monospace",fontSize:12 }}>
+                  No hay evaluaciones guardadas aún.<br/>Ve a "Mi evaluación" y comienza a puntuar.
+                </div>
+              ) : evaluatorNames.map(evName => {
+                const evCandidates = CANDIDATES.map(cName => {
+                  const row = allEvals.find(e => e.evaluator_name===evName && e.candidate_name===cName);
+                  const scores = row?.scores||{};
+                  return { name:cName, scores, total:getTotal(scores), dimAvgs:getDimAvgs(scores) };
+                });
+                const isMe = evName === evaluatorName;
+                return (
+                  <div key={evName} style={{ background:"#0f172a",border: isMe?"1.5px solid #2563EB22":"1.5px solid #1e293b",borderRadius:14,overflow:"hidden" }}>
+                    <div style={{ padding:"10px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:8 }}>
+                      {isMe&&<div style={{ width:6,height:6,borderRadius:"50%",background:"#2563EB" }}/>}
+                      <span style={{ fontFamily:"monospace",fontSize:12,fontWeight:700,color:isMe?"#2563EB":"#94a3b8" }}>
+                        {evName}{isMe?" (tu evaluación)":""}
+                      </span>
+                    </div>
+                    <div className="table-scroll">
+                      <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+                        <thead>
+                          <tr style={{ borderBottom:"1px solid #1e293b" }}>
+                            <th style={{ padding:"8px 16px",textAlign:"left",color:"#475569",fontWeight:500,minWidth:160 }}>Dimensión</th>
+                            {evCandidates.map(c=>(
+                              <th key={c.name} style={{ padding:"8px 14px",textAlign:"center",color:"#94a3b8",fontWeight:700,fontSize:11 }}>
+                                {c.name.split(" ")[0]}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {DIMENSIONS.map(dim=>(
+                            <tr key={dim.id} style={{ borderBottom:"1px solid #0f172a" }}>
+                              <td style={{ padding:"8px 16px" }}>
+                                <span style={{ color:dim.color,fontSize:12 }}>{dim.icon} {dim.label}</span>
+                              </td>
+                              {evCandidates.map(c=>{
+                                const v=c.dimAvgs[dim.id];
+                                return (
+                                  <td key={c.name} style={{ padding:"8px 14px",textAlign:"center" }}>
+                                    <span style={{ fontFamily:"monospace",fontWeight:700,color:v>0?dim.color:"#334155" }}>
+                                      {v>0?v.toFixed(1):"—"}
+                                    </span>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                          <tr style={{ background:"#020617",borderTop:"2px solid #1e293b" }}>
+                            <td style={{ padding:"10px 16px",fontFamily:"monospace",fontWeight:800,color:"#f1f5f9",fontSize:11 }}>TOTAL PONDERADO</td>
+                            {evCandidates.map(c=>{
+                              const { color } = getVerdict(c.total);
+                              return (
+                                <td key={c.name} style={{ padding:"10px 14px",textAlign:"center" }}>
+                                  <span style={{ fontFamily:"monospace",fontWeight:800,fontSize:16,color }}>
+                                    {c.total>0?c.total.toFixed(2):"—"}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+
+            </div>
+          )}
+
+        </div>
+
+        {/* FOOTER LEGEND */}
+        <div style={{ maxWidth:1160,margin:"20px auto 0",display:"flex",gap:16,flexWrap:"wrap" }}>
+          {[
+            { range:"< 2.0",  label:"No recomendado",       color:"#ef4444" },
+            { range:"2.0–2.9",label:"Con reservas",          color:"#f97316" },
+            { range:"3.0–3.9",label:"Potencial",             color:"#eab308" },
+            { range:"4.0–4.4",label:"Recomendado",           color:"#22c55e" },
+            { range:"4.5–5.0",label:"Altamente recomendado", color:"#2563eb" },
+          ].map(item=>(
+            <div key={item.range} style={{ display:"flex",alignItems:"center",gap:6 }}>
+              <div style={{ width:8,height:8,borderRadius:2,background:item.color }}/>
+              <span style={{ fontSize:12,color:"#475569",fontFamily:"monospace" }}>{item.range} · {item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
